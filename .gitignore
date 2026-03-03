@@ -1,0 +1,7 @@
+jepa-wms/
+video_cache/
+results/
+input_videos/
+predictions/
+
+vm2m_lpips_vj2vitgnorm_vitldec_dup_256_INet.pth.tar

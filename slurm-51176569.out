@@ -1,0 +1,2 @@
+grep -r "kth_action" configs/kth/ 2>/dev/null
+grep -r "data_root" configs/kth/simvp/SimVP_gSTA.py
