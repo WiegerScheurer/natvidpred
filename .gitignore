@@ -3,5 +3,9 @@ video_cache/
 results/
 input_videos/
 predictions/
+decoder_checkpoints/
+predictions_vjepa2/
+weights/
+logs/
 
 vm2m_lpips_vj2vitgnorm_vitldec_dup_256_INet.pth.tar
