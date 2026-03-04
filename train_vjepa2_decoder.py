@@ -266,9 +266,24 @@ def train():
     n_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
     print(f"  Decoder parameters: {n_params/1e6:.1f}M")
 
+    # ─── Checkpoint resuming ──────────────────────────────────────────────────
+    start_epoch = 1
     best_loss = float('inf')
+    resume_ckpt = OUTPUT_DIR / 'vjepa2_decoder_last.pt'
+    
+    if resume_ckpt.exists():
+        print(f"  Resuming from checkpoint: {resume_ckpt}")
+        ckpt = torch.load(resume_ckpt)
+        decoder.load_state_dict(ckpt['state_dict'])
+        optimizer.load_state_dict(ckpt['optimizer'])
+        scheduler.load_state_dict(ckpt['scheduler'])
+        start_epoch = ckpt['epoch'] + 1
+        best_loss = ckpt.get('best_loss', float('inf'))
+        print(f"  → Resuming from epoch {start_epoch}, best_loss={best_loss:.4f}")
+    else:
+        print(f"  No checkpoint found, starting fresh training")
 
-    for epoch in range(1, NUM_EPOCHS + 1):
+    for epoch in range(start_epoch, NUM_EPOCHS + 1):
         decoder.train()
         epoch_loss = 0.0
 
@@ -320,6 +335,7 @@ def train():
             }, OUTPUT_DIR / 'vjepa2_decoder_best.pt')
             print(f"  → New best saved (loss={best_loss:.4f})")
 
+        # Save periodic checkpoint (for archival)
         if epoch % SAVE_EVERY == 0:
             torch.save({
                 'state_dict':   decoder.state_dict(),
@@ -328,6 +344,19 @@ def train():
                 'decoder_dim':  DECODER_DIM,
                 'img_size':     img_size,
             }, OUTPUT_DIR / f'vjepa2_decoder_epoch{epoch:03d}.pt')
+        
+        # Always save resumable checkpoint (overwrites previous)
+        torch.save({
+            'epoch':        epoch,
+            'state_dict':   decoder.state_dict(),
+            'optimizer':    optimizer.state_dict(),
+            'scheduler':    scheduler.state_dict(),
+            'best_loss':    best_loss,
+            'n_spatial':    N_SPATIAL,
+            'embed_dim':    EMBED_DIM,
+            'decoder_dim':  DECODER_DIM,
+            'img_size':     img_size,
+        }, OUTPUT_DIR / 'vjepa2_decoder_last.pt')
 
     torch.save({
         'state_dict':  decoder.state_dict(),
