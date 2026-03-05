@@ -1,11 +1,48 @@
-jepa-wms/
+# Cache and temporary files
 video_cache/
-results/
-input_videos/
-predictions/
+jepa-wms/
+
+# Model weights and checkpoints
 decoder_checkpoints/
-predictions_vjepa2/
+decoder_checkpoints_predictor/
 weights/
+*.pth.tar
+vm2m_lpips_vj2vitgnorm_vitldec_dup_256_INet.pth.tar
+
+# Input data
+input_videos/
+
+# Output and results
+predictions/
+predictions_vjepa2/
+results/
+
+# Logs
 logs/
 
-vm2m_lpips_vj2vitgnorm_vitldec_dup_256_INet.pth.tar
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

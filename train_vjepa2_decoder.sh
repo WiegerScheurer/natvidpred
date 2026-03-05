@@ -57,6 +57,9 @@ echo "GPU: $SLURM_GPUS_PER_NODE"
 echo "CPUs: $SLURM_CPUS_PER_TASK"
 echo "Memory: $SLURM_MEM_PER_NODE MB"
 echo ""
+echo "Assigned GPU details:"
+nvidia-smi --query-gpu=index,name,memory.total,compute_cap --format=csv,noheader
+echo ""
 
 cd /project/3018078.02/natvidpred_workspace
 
