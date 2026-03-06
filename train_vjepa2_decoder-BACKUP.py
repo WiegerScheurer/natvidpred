@@ -80,21 +80,13 @@ EASY_MODE_PREDICTOR = True  # Set to True for decoder-only evaluation
 # At inference, the predictor will predict actual future frames, but the decoder
 # will have learned the mapping on maximally clean examples.
 
-# ── Lazy loading config ───────────────────────────────────────────────────────
-USE_LAZY_LOADING = True     # Disk-cache tokens, load pairs on-the-fly (no RAM limit)
-CACHE_DIR = Path('predictor_tokens_cache')  # Where to save encoded tokens
-
-# LAZY LOADING PARAMETERS (maximum data, minimal memory):
-CLIPS_PER_VIDEO     = None  # None = ALL clips (~280 per 12-min video)
-NUM_WORKERS         = 4     # Parallel I/O workers (safe with lazy loading)
-
-# NON-LAZY PARAMETERS (for comparison, if USE_LAZY_LOADING=False):
-# CLIPS_PER_VIDEO     = 50
-# NUM_WORKERS         = 0
+# PRODUCTION PARAMETERS (slow, thorough):
+# CLIPS_PER_VIDEO     = 50 #
+# TARGETS_PER_CLIP    = 12
 
 # FAST TEST PARAMETERS (use these first to verify the pipeline works):
-# CLIPS_PER_VIDEO     = 2    # 16 videos × 2 clips = 32 encoding passes (~3–5 min)
-TARGETS_PER_CLIP    = 3    # Only used in hard mode (whic I don't use)
+CLIPS_PER_VIDEO     = 2    # 16 videos × 2 clips = 32 encoding passes (~3–5 min)
+TARGETS_PER_CLIP    = 3    # 32 clips × 3 targets = 96 pairs (small but workable)
 
 # Per clip window, sample this many (context, target) predictor pairs.
 # Each pair uses a freshly randomised context length and target position.
@@ -106,16 +98,16 @@ MAX_CONTEXT_TOKENS  = 16   # ≤ T_tok - 1  (= 31 for fpc64)
 
 # ── Training ──────────────────────────────────────────────────────────────────
 # FAST TEST (verify pipeline works in ~5–10 min total):
-# BATCH_SIZE      = 2
-# NUM_EPOCHS      = 1
-# SAVE_EVERY      = 1
+BATCH_SIZE      = 2
+NUM_EPOCHS      = 1
+SAVE_EVERY      = 1
 
-# PRODUCTION (with lazy loading + all clips: ~14-16 hours on A100):
-BATCH_SIZE      = 8
-NUM_EPOCHS      = 40
+# PRODUCTION (uncomment after successful test, expects ~2–3 hours):
+# BATCH_SIZE      = 8
+# NUM_EPOCHS      = 40
 LR              = 2e-4
-OUTPUT_DIR      = Path('decoder_checkpoints_predictor_lazyload_easymode')
-SAVE_EVERY      = 5
+OUTPUT_DIR      = Path('decoder_checkpoints_predictor_test')
+# SAVE_EVERY      = 5
 
 # LR              = 2e-4
 # OUTPUT_DIR      = Path('decoder_checkpoints_predictor')
@@ -166,25 +158,17 @@ class VJepa2Decoder(nn.Module):
 # ─── Clip loader ──────────────────────────────────────────────────────────────
 
 def sample_clip_starts(video_path, n_clips, clip_frames):
-    """
-    Return up to n_clips evenly-spaced start frame indices.
-    If n_clips is None, return ALL possible non-overlapping clips.
-    """
+    """Return up to n_clips evenly-spaced start frame indices."""
     cap   = cv2.VideoCapture(video_path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cap.release()
     if total < clip_frames:
         return []
     max_start = total - clip_frames
-    
-    if n_clips is None:
-        # ALL non-overlapping clips
-        return list(range(0, max_start + 1, clip_frames))
-    elif n_clips == 1:
+    if n_clips == 1:
         return [0]
-    else:
-        starts = [int(i * max_start / (n_clips - 1)) for i in range(n_clips)]
-        return sorted(set(starts))[:n_clips]
+    starts = [int(i * max_start / (n_clips - 1)) for i in range(n_clips)]
+    return sorted(set(starts))[:n_clips]
 
 
 def load_clip(video_path, start_frame, clip_frames, img_size):
@@ -341,121 +325,7 @@ def generate_predictor_pairs(clip_frames_list, model, processor,
 
     return pairs
 
-# ─── Preprocessing: cache tokens to disk ─────────────────────────────────────
-
-@torch.inference_mode()
-def preprocess_and_cache_tokens(video_paths, model, processor, cache_dir,
-                                 clips_per_video, clip_frames, tubelet_size,
-                                 n_spatial, img_size, easy_mode):
-    """
-    Encode all clips once and save predictor tokens to disk.
-    Each token saved as: {cache_dir}/{video_basename}_{clip_start}_{target_t}.pt
-    
-    Returns metadata list: [(video_path, clip_start, target_t, cache_path), ...]
-    """
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    metadata = []
-    T_tok = clip_frames // tubelet_size
-    
-    print("\n[Preprocessing] Encoding all clips and caching tokens ...")
-    sys.stdout.flush()
-    
-    for vi, vp in enumerate(video_paths):
-        video_name = Path(vp).stem
-        starts = sample_clip_starts(vp, clips_per_video, clip_frames)
-        print(f"  Video {vi+1}/{len(video_paths)}: {video_name}  —  {len(starts)} clips")
-        sys.stdout.flush()
-        
-        for ci, start in enumerate(starts):
-            # Check if alreadycached
-            cache_exists = all(
-                (cache_dir / f"{video_name}_{start:06d}_{t:02d}.pt").exists()
-                for t in range(T_tok)
-            )
-            
-            if cache_exists:
-                # Just record metadata
-                for target_t in range(T_tok):
-                    cache_path = cache_dir / f"{video_name}_{start:06d}_{target_t:02d}.pt"
-                    metadata.append((vp, start, target_t, str(cache_path)))
-            else:
-                # Load and encode
-                frames = load_clip(vp, start, clip_frames, img_size)
-                if frames is None:
-                    continue
-                
-                # Encode full clip
-                video_tensor = torch.stack(
-                    [torch.from_numpy(f).permute(2, 0, 1) for f in frames]
-                )
-                inputs = processor(video_tensor, return_tensors="pt")
-                pv = inputs["pixel_values_videos"].cuda()
-                tokens_flat = model.get_vision_features(pv)  # [1, T_tok*P, D]
-                
-                # Generate predictor tokens for each position
-                for target_t in range(T_tok):
-                    ctx_start = target_t
-                    ctx_len = 1
-                    
-                    pred_tok = call_predictor(
-                        model, tokens_flat, ctx_start, ctx_len, target_t, n_spatial)
-                    
-                    if pred_tok is not None:
-                        cache_path = cache_dir / f"{video_name}_{start:06d}_{target_t:02d}.pt"
-                        torch.save(pred_tok, cache_path)
-                        metadata.append((vp, start, target_t, str(cache_path)))
-            
-            if (ci + 1) % 10 == 0:
-                print(f"   → Clip {ci+1}/{len(starts)} processed, {len(metadata)} tokens cached")
-                sys.stdout.flush()
-    
-    print(f"\n[Preprocessing] Complete: {len(metadata)} tokens ready")
-    sys.stdout.flush()
-    return metadata
-
-
-# ─── Lazy Loading Dataset ─────────────────────────────────────────────────────
-
-class LazyPredictorTokenDataset(Dataset):
-    """
-    Lazy-loading dataset: stores only metadata, loads tokens from disk on-the-fly.
-    Enables using ALL clips without memory constraints.
-    """
-    def __init__(self, metadata, img_size, clip_frames, tubelet_size):
-        self.metadata = metadata  # List of (video_path, clip_start, target_t, cache_path)
-        self.img_size = img_size
-        self.clip_frames = clip_frames
-        self.tubelet_size = tubelet_size
-    
-    def __len__(self):
-        return len(self.metadata)
-    
-    def __getitem__(self, idx):
-        video_path, clip_start, target_t, cache_path = self.metadata[idx]
-        
-        # Load cached predictor token
-        pred_token = torch.load(cache_path)
-        
-        # Load corresponding ground-truth frame
-        frame_idx = clip_start + (target_t * self.tubelet_size)
-        cap = cv2.VideoCapture(video_path)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = cap.read()
-        cap.release()
-        
-        if not ret:
-            # Fallback: return zeros (shouldn't happen if preprocessing succeeded)
-            frame_t = torch.zeros(3, self.img_size, self.img_size)
-        else:
-            frame = cv2.resize(frame, (self.img_size, self.img_size))
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame_np = frame.astype(np.float32) / 255.0
-            frame_t = torch.from_numpy(frame_np).permute(2, 0, 1)
-        
-        return pred_token, frame_t
-
-
-# ─── Original In-Memory Dataset (for comparison) ──────────────────────────────
+# ─── Dataset ──────────────────────────────────────────────────────────────────
 
 class PredictorTokenDataset(Dataset):
     """
@@ -527,62 +397,36 @@ def train():
         p.requires_grad_(False)
     img_size = processor.crop_size['height']
     print(f"  Encoder + predictor frozen. Crop size: {img_size}×{img_size}")
-    print(f"  Loading mode: {'LAZY (disk-cached)' if USE_LAZY_LOADING else 'IN-MEMORY'}")
-    print(f"  Easy mode: {EASY_MODE_PREDICTOR}")
-    
-    # Calculate expected dataset size
-    if CLIPS_PER_VIDEO is None:
-        # Estimate: ~12 min video @ 25fps = ~18k frames → ~280 clips
-        clips_estimate = 280
-        print(f"  Clips per video: ALL (~{clips_estimate} for 12-min video)")
-    else:
-        clips_estimate = CLIPS_PER_VIDEO
-        print(f"  Clips per video: {CLIPS_PER_VIDEO}")
+    print(f"  Context range: [{MIN_CONTEXT_TOKENS}, {MAX_CONTEXT_TOKENS}] tokens")
+    print(f"  Clips per video: {CLIPS_PER_VIDEO}  |  "
+          f"Easy mode: {EASY_MODE_PREDICTOR}")
     
     if EASY_MODE_PREDICTOR:
         T_tok = CLIP_FRAMES // TUBELET_SIZE
-        expected_pairs = len(VIDEO_PATHS) * clips_estimate * T_tok
-        print(f"  Expected pairs (easy mode): ~{expected_pairs:,}")
+        expected_pairs = len(VIDEO_PATHS) * CLIPS_PER_VIDEO * T_tok
+        print(f"  Expected pairs (easy mode, all frames): ~{expected_pairs:,}")
     else:
-        expected_pairs = len(VIDEO_PATHS) * clips_estimate * TARGETS_PER_CLIP
+        expected_pairs = len(VIDEO_PATHS) * CLIPS_PER_VIDEO * TARGETS_PER_CLIP
         print(f"  Expected pairs (hard mode): ~{expected_pairs:,}")
     sys.stdout.flush()
 
-    # Create dataset
-    if USE_LAZY_LOADING:
-        # Preprocess: encode all clips and cache tokens to disk
-        metadata = preprocess_and_cache_tokens(
-            VIDEO_PATHS, encoder, processor, CACHE_DIR,
-            CLIPS_PER_VIDEO, CLIP_FRAMES, TUBELET_SIZE,
-            N_SPATIAL, img_size, EASY_MODE_PREDICTOR)
-        
-        if len(metadata) == 0:
-            raise RuntimeError("No tokens cached. Check video paths and predictor API.")
-        
-        dataset = LazyPredictorTokenDataset(metadata, img_size, CLIP_FRAMES, TUBELET_SIZE)
-        num_workers = NUM_WORKERS
-    else:
-        # In-memory: generate all pairs at once
-        print("\nGenerating predictor training pairs (in-memory) …")
-        sys.stdout.flush()
-        dataset = PredictorTokenDataset(
-            VIDEO_PATHS, encoder, processor, img_size,
-            CLIPS_PER_VIDEO, CLIP_FRAMES, TUBELET_SIZE, N_SPATIAL,
-            TARGETS_PER_CLIP, MIN_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS,
-            easy_mode=EASY_MODE_PREDICTOR)
-        
-        if len(dataset) == 0:
-            raise RuntimeError(
-                "Dataset is empty. The predictor API call failed for all clips. "
-                "Check that model.predictor exists and that call_predictor() is "
-                "using the correct signature for your V-JEPA 2 version.")
-        num_workers = 0
-
-    print(f"\nDataset ready: {len(dataset)} pairs")
+    print("\nGenerating predictor training pairs …")
     sys.stdout.flush()
+    
+    dataset = PredictorTokenDataset(
+        VIDEO_PATHS, encoder, processor, img_size,
+        CLIPS_PER_VIDEO, CLIP_FRAMES, TUBELET_SIZE, N_SPATIAL,
+        TARGETS_PER_CLIP, MIN_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS,
+        easy_mode=EASY_MODE_PREDICTOR)
+
+    if len(dataset) == 0:
+        raise RuntimeError(
+            "Dataset is empty.  The predictor API call failed for all clips.  "
+            "Check that model.predictor exists and that call_predictor() is "
+            "using the correct signature for your V-JEPA 2 version.")
 
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True,
-                            num_workers=num_workers, pin_memory=True, drop_last=True)
+                            num_workers=0, pin_memory=True, drop_last=True)
 
     decoder   = VJepa2Decoder(N_SPATIAL, EMBED_DIM, DECODER_DIM, img_size).cuda()
     optimizer = torch.optim.AdamW(decoder.parameters(), lr=LR, weight_decay=1e-4)

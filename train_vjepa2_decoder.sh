@@ -2,7 +2,7 @@
 #SBATCH --job-name=vjepa2_decoder_train
 #SBATCH --output=logs/vjepa2_decoder_%A.out
 #SBATCH --error=logs/vjepa2_decoder_%A.err
-#SBATCH --time=24:00:00                    # ~23h for 40 epochs full dataset
+#SBATCH --time=16:00:00                   # Preprocessing (~50min) + 40 epochs (~14-15h)
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1                       # 1 A100 GPU
 #SBATCH --cpus-per-task=8                  # CPU cores for video loading

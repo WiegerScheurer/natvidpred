@@ -67,7 +67,8 @@ from transformers import AutoModel, AutoVideoProcessor
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
 HF_MODEL_NAME        = "facebook/vjepa2-vitg-fpc64-384"
-DECODER_CHECKPOINT   = "/project/3018078.02/natvidpred_workspace/decoder_checkpoints/vjepa2_decoder_best.pt"
+# DECODER_CHECKPOINT   = "/project/3018078.02/natvidpred_workspace/decoder_checkpoints/vjepa2_decoder_best.pt"
+DECODER_CHECKPOINT   = "/project/3018078.02/natvidpred_workspace/decoder_checkpoints_predictor/vjepa2_decoder_predictor_best.pt"
 VIDEO_DIR            = '/project/3018078.02/MEG_ingmar/shorts/'
 VIDEO_PATH           = VIDEO_DIR + "bw_testclip_bouwval.mp4"
 
@@ -88,7 +89,7 @@ CUSTOM_SUFFIX        = ""
 # Set True to replace predicted future tokens with GT encoder tokens.
 # This lets you confirm the decoder is correct independently of the predictor.
 # Expected result: decoded future frames should look like real video frames.
-USE_GT_FUTURE_TOKENS = True # was false
+USE_GT_FUTURE_TOKENS = False # was false
 
 # Set True to rescale predicted token norms to match context token norms
 # before decoding.  Quick heuristic that may partially fix scale mismatch.
