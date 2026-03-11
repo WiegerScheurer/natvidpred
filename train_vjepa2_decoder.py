@@ -79,6 +79,7 @@ EASY_MODE_PREDICTOR = True  # Set to True for decoder-only evaluation
 # no predictor uncertainty, just clean token→pixel learning.
 # At inference, the predictor will predict actual future frames, but the decoder
 # will have learned the mapping on maximally clean examples.
+TARGETS_PER_CLIP_EASY = 1  # Easy mode: number of target tokens to predict per clip
 
 # ── Lazy loading config ───────────────────────────────────────────────────────
 USE_LAZY_LOADING = True     # Disk-cache tokens, load pairs on-the-fly (no RAM limit)
@@ -346,7 +347,8 @@ def generate_predictor_pairs(clip_frames_list, model, processor,
 @torch.inference_mode()
 def preprocess_and_cache_tokens(video_paths, model, processor, cache_dir,
                                  clips_per_video, clip_frames, tubelet_size,
-                                 n_spatial, img_size, easy_mode):
+                                 n_spatial, img_size, easy_mode,
+                                 targets_per_clip_easy=1):
     """
     Encode all clips once and save predictor tokens to disk.
     Each token saved as: {cache_dir}/{video_basename}_{clip_start}_{target_t}.pt
@@ -356,6 +358,15 @@ def preprocess_and_cache_tokens(video_paths, model, processor, cache_dir,
     cache_dir.mkdir(parents=True, exist_ok=True)
     metadata = []
     T_tok = clip_frames // tubelet_size
+
+    if easy_mode:
+        if targets_per_clip_easy <= 1:
+            target_indices = [T_tok // 2]  # deterministic, middle token
+        else:
+            step = max(1, T_tok // targets_per_clip_easy)
+            target_indices = list(range(0, T_tok, step))[:targets_per_clip_easy]
+    else:
+        target_indices = list(range(T_tok))
     
     print("\n[Preprocessing] Encoding all clips and caching tokens ...")
     sys.stdout.flush()
@@ -370,12 +381,12 @@ def preprocess_and_cache_tokens(video_paths, model, processor, cache_dir,
             # Check if alreadycached
             cache_exists = all(
                 (cache_dir / f"{video_name}_{start:06d}_{t:02d}.pt").exists()
-                for t in range(T_tok)
+                for t in target_indices
             )
             
             if cache_exists:
                 # Just record metadata
-                for target_t in range(T_tok):
+                for target_t in target_indices:
                     cache_path = cache_dir / f"{video_name}_{start:06d}_{target_t:02d}.pt"
                     metadata.append((vp, start, target_t, str(cache_path)))
             else:
@@ -392,8 +403,8 @@ def preprocess_and_cache_tokens(video_paths, model, processor, cache_dir,
                 pv = inputs["pixel_values_videos"].cuda()
                 tokens_flat = model.get_vision_features(pv)  # [1, T_tok*P, D]
                 
-                # Generate predictor tokens for each position
-                for target_t in range(T_tok):
+                # Generate predictor tokens for selected target positions
+                for target_t in target_indices:
                     ctx_start = target_t
                     ctx_len = 1
                     
@@ -529,6 +540,8 @@ def train():
     print(f"  Encoder + predictor frozen. Crop size: {img_size}×{img_size}")
     print(f"  Loading mode: {'LAZY (disk-cached)' if USE_LAZY_LOADING else 'IN-MEMORY'}")
     print(f"  Easy mode: {EASY_MODE_PREDICTOR}")
+    if EASY_MODE_PREDICTOR:
+        print(f"  Easy targets per clip: {TARGETS_PER_CLIP_EASY}")
     
     # Calculate expected dataset size
     if CLIPS_PER_VIDEO is None:
@@ -540,8 +553,7 @@ def train():
         print(f"  Clips per video: {CLIPS_PER_VIDEO}")
     
     if EASY_MODE_PREDICTOR:
-        T_tok = CLIP_FRAMES // TUBELET_SIZE
-        expected_pairs = len(VIDEO_PATHS) * clips_estimate * T_tok
+        expected_pairs = len(VIDEO_PATHS) * clips_estimate * TARGETS_PER_CLIP_EASY
         print(f"  Expected pairs (easy mode): ~{expected_pairs:,}")
     else:
         expected_pairs = len(VIDEO_PATHS) * clips_estimate * TARGETS_PER_CLIP
@@ -554,7 +566,8 @@ def train():
         metadata = preprocess_and_cache_tokens(
             VIDEO_PATHS, encoder, processor, CACHE_DIR,
             CLIPS_PER_VIDEO, CLIP_FRAMES, TUBELET_SIZE,
-            N_SPATIAL, img_size, EASY_MODE_PREDICTOR)
+            N_SPATIAL, img_size, EASY_MODE_PREDICTOR,
+            targets_per_clip_easy=TARGETS_PER_CLIP_EASY)
         
         if len(metadata) == 0:
             raise RuntimeError("No tokens cached. Check video paths and predictor API.")
@@ -609,6 +622,17 @@ def train():
     else:
         print("  No checkpoint found, starting fresh.")
 
+    # ── Perceptual loss (initialize once) ───────────────────────────────────
+    lpips_fn = None
+    try:
+        import lpips
+        lpips_fn = lpips.LPIPS(net='vgg').cuda().eval()
+        for parameter in lpips_fn.parameters():
+            parameter.requires_grad_(False)
+        print("  LPIPS enabled (vgg).")
+    except ImportError:
+        print("  LPIPS not installed; using L1 loss only.")
+
     # ── Training loop ─────────────────────────────────────────────────────────
     for epoch in range(start_epoch, NUM_EPOCHS + 1):
         decoder.train()
@@ -635,14 +659,12 @@ def train():
             # OLD (too simple):
             # loss = loss_l1 + 0.1 * grad_loss()
 
-            # Better (with perceptual loss added, mits lpips available):
-            try:
-                import lpips
-                lpips_fn = lpips.LPIPS(net='vgg').cuda()
+            # Better (with perceptual loss added, if lpips available):
+            if lpips_fn is not None:
                 loss_perceptual = lpips_fn(recon, frames).mean()
                 loss = loss_l1 + 0.1 * loss_perceptual
-            except ImportError:
-                loss = loss_l1  # fallback
+            else:
+                loss = loss_l1
 
             optimizer.zero_grad()
             loss.backward()

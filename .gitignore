@@ -19,6 +19,7 @@ input_videos/
 predictions/
 predictions_vjepa2/
 results/
+vjepa_results_*/
 
 # Logs
 logs/
