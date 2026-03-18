@@ -1,0 +1,2 @@
+video,ctx_rms_contrast,ctx_brightness,ctx_edge_content,ctx_optical_flow_magnitude,pred_4_cos_mean,pred_8_cos_mean,pred_12_cos_mean
+longclip_part42_bw,0.45196979524985637,0.4157945230327398,0.1166489935825091,1.2650879174169085,0.46197924150488223,0.465402308322803,0.48078962779437107

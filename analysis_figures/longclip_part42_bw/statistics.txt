@@ -1,0 +1,44 @@
+
+============================================================
+STATISTICS FOR longclip_part42_bw
+============================================================
+
+VISUAL STATISTICS:
+  ctx_rms_contrast:
+    Mean: 0.4520, Std: 0.0577
+    Min: 0.3164, Max: 0.5947
+  ctx_brightness:
+    Mean: 0.4158, Std: 0.0592
+    Min: 0.2547, Max: 0.5611
+  ctx_edge_content:
+    Mean: 0.1166, Std: 0.0291
+    Min: 0.0406, Max: 0.1804
+  ctx_optical_flow_magnitude:
+    Mean: 1.2651, Std: 0.9889
+    Min: 0.3259, Max: 5.3498
+
+PREDICTABILITY METRICS:
+  pred_12_cos_mean:
+    Mean: 0.4808, Std: 0.0862
+    Min: 0.2608, Max: 0.7529
+  pred_12_l2_mean:
+    Mean: 57.5784, Std: 3.0450
+    Min: 47.7527, Max: 70.0845
+  pred_4_cos_mean:
+    Mean: 0.4620, Std: 0.0975
+    Min: 0.2312, Max: 0.7520
+  pred_4_l2_mean:
+    Mean: 57.2329, Std: 3.6375
+    Min: 48.4841, Max: 70.6705
+  pred_8_cos_mean:
+    Mean: 0.4654, Std: 0.0912
+    Min: 0.2505, Max: 0.7517
+  pred_8_l2_mean:
+    Mean: 57.2294, Std: 3.3166
+    Min: 47.5475, Max: 69.8318
+
+KEY CORRELATIONS (with 8-step unpredictability):
+  ctx_rms_contrast -> pred_8_cos_mean: r=0.167 (p=2.16e-12)
+  ctx_brightness -> pred_8_cos_mean: r=0.154 (p=1.01e-10)
+  ctx_edge_content -> pred_8_cos_mean: r=-0.111 (p=3.70e-06)
+  ctx_optical_flow_magnitude -> pred_8_cos_mean: r=0.268 (p=5.42e-30)
