@@ -19,6 +19,7 @@ SMOOTH_WINDOW = 5  # Rolling average window
 plt.style.use('seaborn-v0_8-darkgrid')
 sns.set_palette("husl")
 
+SPECIFIC_VID = None  # Set to specific video name to analyze just that one, or None for all
 # --- Data Loading & Preparation ---
 
 def load_video_metrics(video_name):
@@ -29,15 +30,17 @@ def load_video_metrics(video_name):
         return None
     return pd.read_csv(csv_path)
 
-def load_all_videos():
+def load_all_videos(specific_vid=None):
     """Load all available video metrics."""
+    specific_vid_str = specific_vid if specific_vid is not None else ""
+
     videos = {}
     if not RESULTS_DIR.exists():
         print(f"Results directory not found: {RESULTS_DIR}")
         return videos
     
     for video_dir in sorted(RESULTS_DIR.iterdir()):
-        if video_dir.is_dir():
+        if video_dir.is_dir() and specific_vid_str in video_dir.name:
             csv_path = video_dir / "frame_metrics.csv"
             if csv_path.exists():
                 videos[video_dir.name] = pd.read_csv(csv_path)
@@ -562,7 +565,7 @@ def main():
     print(f"{'='*60}")
     
     # Load all videos
-    all_videos = load_all_videos()
+    all_videos = load_all_videos(specific_vid=SPECIFIC_VID)
     
     if not all_videos:
         print("No videos found in results directory!")

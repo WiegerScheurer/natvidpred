@@ -1,0 +1,44 @@
+
+============================================================
+STATISTICS FOR iglo
+============================================================
+
+VISUAL STATISTICS:
+  ctx_rms_contrast:
+    Mean: 0.5077, Std: 0.0146
+    Min: 0.4844, Max: 0.5354
+  ctx_brightness:
+    Mean: 0.4730, Std: 0.0168
+    Min: 0.4463, Max: 0.5049
+  ctx_edge_content:
+    Mean: 0.1384, Std: 0.0080
+    Min: 0.1274, Max: 0.1550
+  ctx_optical_flow_magnitude:
+    Mean: 1.3579, Std: 0.2682
+    Min: 0.9021, Max: 1.8005
+
+PREDICTABILITY METRICS:
+  pred_12_cos_mean:
+    Mean: 0.4943, Std: 0.0796
+    Min: 0.2768, Max: 0.7217
+  pred_12_l2_mean:
+    Mean: 55.5814, Std: 2.7472
+    Min: 48.5193, Max: 63.2566
+  pred_4_cos_mean:
+    Mean: 0.4569, Std: 0.0880
+    Min: 0.2427, Max: 0.6944
+  pred_4_l2_mean:
+    Mean: 54.7339, Std: 3.1217
+    Min: 47.0483, Max: 63.3978
+  pred_8_cos_mean:
+    Mean: 0.4664, Std: 0.0837
+    Min: 0.2503, Max: 0.7200
+  pred_8_l2_mean:
+    Mean: 54.8356, Std: 2.9597
+    Min: 47.7322, Max: 63.0868
+
+KEY CORRELATIONS (with 8-step unpredictability):
+  ctx_rms_contrast -> pred_8_cos_mean: r=0.092 (p=2.92e-01)
+  ctx_brightness -> pred_8_cos_mean: r=0.090 (p=3.05e-01)
+  ctx_edge_content -> pred_8_cos_mean: r=-0.053 (p=5.43e-01)
+  ctx_optical_flow_magnitude -> pred_8_cos_mean: r=0.101 (p=2.51e-01)

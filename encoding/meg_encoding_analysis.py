@@ -28,6 +28,8 @@ Usage
         --lag_max       0.50
 """
 
+
+
 # ── Imports ────────────────────────────────────────────────────────────────
 import os, sys, argparse, logging, warnings, json
 from pathlib import Path
@@ -457,6 +459,37 @@ def run_encoding_model(X, Y, n_folds, alphas, n_jobs=1):
         'fold_r2'             (n_folds, n_channels)
     """
     T, n_ch = Y.shape
+
+
+    # ── Handle NaN values in MEG data ──────────────────────────────────
+    # Check for NaN channels (entire channel is NaN)
+    nan_per_channel = np.isnan(Y).sum(axis=0)
+    if (nan_per_channel > 0).any():
+        log.warning('Found %d channels with NaN values. Removing them.',
+                    (nan_per_channel > 0).sum())
+        valid_ch = nan_per_channel == 0
+        Y = Y[:, valid_ch]
+        n_ch = Y.shape[1]
+        log.info('Reduced to %d valid channels', n_ch)
+
+    # Check for NaN timepoints across all channels  
+    nan_per_timepoint = np.isnan(Y).any(axis=1)
+    if nan_per_timepoint.any():
+        valid_t = ~nan_per_timepoint
+        log.warning('Found %d timepoints with NaN. Removing them.',
+                    nan_per_timepoint.sum())
+        X = X[valid_t]
+        Y = Y[valid_t]
+        T = Y.shape[0]
+        log.info('Reduced to %d valid timepoints', T)
+
+    # Replace any remaining NaNs with 0
+    if np.isnan(Y).any() or np.isnan(X).any():
+        log.warning('Remaining NaNs found. Replacing with 0.')
+        X = np.nan_to_num(X, nan=0.0)
+        Y = np.nan_to_num(Y, nan=0.0)
+
+
 
     # Standardise X (per feature, across time)
     scaler = StandardScaler()
